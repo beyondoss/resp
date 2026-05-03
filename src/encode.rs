@@ -198,6 +198,12 @@ mod tests {
     }
 
     #[test]
+    fn bulk_error() {
+        assert_eq!(enc3(&Value::BulkError("SYNTAX err".into())), b"!10\r\nSYNTAX err\r\n");
+        assert_eq!(enc3(&Value::BulkError(Bytes::new())), b"!0\r\n\r\n");
+    }
+
+    #[test]
     fn verbatim_string() {
         let v = Value::VerbatimString {
             encoding: *b"txt",

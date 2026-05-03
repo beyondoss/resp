@@ -71,6 +71,9 @@ impl Decoder for RespCodec {
         if src.is_empty() {
             return Ok(None);
         }
+        if src.len() > self.max_frame_bytes {
+            return Err(RespError::too_large(self.max_frame_bytes));
+        }
         match parse::frame_len(src) {
             Ok(len) => {
                 if len > self.max_frame_bytes {

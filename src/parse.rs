@@ -42,7 +42,7 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
             match len {
                 -1 => {}
                 n if n < 0 => return Err(RespError::InvalidLength),
-                n => skip_bulk(src, pos, n as usize)?,
+                n => skip_bulk(src, pos, to_count(n)?)?,
             }
         }
         b'*' => {
@@ -51,7 +51,7 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
                 -1 => {}
                 n if n < 0 => return Err(RespError::InvalidLength),
                 n => {
-                    for _ in 0..n as usize {
+                    for _ in 0..to_count(n)? {
                         count_value(src, pos, depth + 1)?;
                     }
                 }
@@ -62,14 +62,14 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            skip_bulk(src, pos, len as usize)?;
+            skip_bulk(src, pos, to_count(len)?)?;
         }
         b'%' => {
             let len = read_length(src, pos)?;
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            for _ in 0..len as usize * 2 {
+            for _ in 0..to_pair_count(len)? {
                 count_value(src, pos, depth + 1)?;
             }
         }
@@ -78,7 +78,7 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            for _ in 0..len as usize * 2 {
+            for _ in 0..to_pair_count(len)? {
                 count_value(src, pos, depth + 1)?;
             }
             count_value(src, pos, depth + 1)?;
@@ -88,7 +88,7 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            for _ in 0..len as usize {
+            for _ in 0..to_count(len)? {
                 count_value(src, pos, depth + 1)?;
             }
         }
@@ -134,7 +134,7 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
                 -1 => Ok(Value::Null),
                 n if n < 0 => Err(RespError::InvalidLength),
                 n => {
-                    let (s, e) = bulk_range(src, pos, n as usize)?;
+                    let (s, e) = bulk_range(src, pos, to_count(n)?)?;
                     Ok(Value::BulkString(src.slice(s..e)))
                 }
             }
@@ -144,7 +144,7 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
             match len {
                 -1 => Ok(Value::Null),
                 n if n < 0 => Err(RespError::InvalidLength),
-                n => Ok(Value::Array(build_sequence(src, pos, n as usize, depth)?)),
+                n => Ok(Value::Array(build_sequence(src, pos, to_count(n)?, depth)?)),
             }
         }
         b'_' => {
@@ -175,7 +175,7 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            let (s, e) = bulk_range(src, pos, len as usize)?;
+            let (s, e) = bulk_range(src, pos, to_count(len)?)?;
             Ok(Value::BulkError(src.slice(s..e)))
         }
         b'=' => {
@@ -183,7 +183,7 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
             if len < 4 {
                 return Err(RespError::InvalidVerbatim);
             }
-            let (s, e) = bulk_range(src, pos, len as usize)?;
+            let (s, e) = bulk_range(src, pos, to_count(len)?)?;
             if src[s + 3] != b':' {
                 return Err(RespError::InvalidVerbatim);
             }
@@ -195,14 +195,14 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            Ok(Value::Map(build_pairs(src, pos, len as usize, depth)?))
+            Ok(Value::Map(build_pairs(src, pos, to_count(len)?, depth)?))
         }
         b'|' => {
             let len = read_length(src, pos)?;
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            let attrs = build_pairs(src, pos, len as usize, depth)?;
+            let attrs = build_pairs(src, pos, to_count(len)?, depth)?;
             let value = Box::new(build_value(src, pos, depth + 1)?);
             Ok(Value::Attribute { attrs, value })
         }
@@ -211,14 +211,14 @@ pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Val
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            Ok(Value::Set(build_sequence(src, pos, len as usize, depth)?))
+            Ok(Value::Set(build_sequence(src, pos, to_count(len)?, depth)?))
         }
         b'>' => {
             let len = read_length(src, pos)?;
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
-            Ok(Value::Push(build_sequence(src, pos, len as usize, depth)?))
+            Ok(Value::Push(build_sequence(src, pos, to_count(len)?, depth)?))
         }
         byte => Err(RespError::invalid_type(byte)),
     }
@@ -326,6 +326,19 @@ fn expect_crlf(src: &[u8], pos: &mut usize) -> Result<(), RespError> {
 #[inline]
 fn require(src: &[u8], pos: usize, n: usize) -> Result<(), RespError> {
     if src.len() >= pos + n { Ok(()) } else { Err(RespError::Incomplete) }
+}
+
+/// Convert a non-negative i64 length/count to usize, rejecting values that
+/// don't fit (guards against silent truncation on 32-bit / WASM targets).
+#[inline]
+fn to_count(n: i64) -> Result<usize, RespError> {
+    usize::try_from(n).map_err(|_| RespError::InvalidLength)
+}
+
+/// Like `to_count` but multiplies by 2 for map/attribute pair counts.
+#[inline]
+fn to_pair_count(n: i64) -> Result<usize, RespError> {
+    to_count(n)?.checked_mul(2).ok_or(RespError::InvalidLength)
 }
 
 /// Parse an i64 from ASCII decimal bytes with optional leading sign.

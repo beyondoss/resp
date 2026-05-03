@@ -32,7 +32,7 @@ fn simple_error() {
 
 #[test]
 fn integer() {
-    for n in [0i64, 1, -1, i64::MAX, i64::MIN + 1] {
+    for n in [0i64, 1, -1, i64::MAX, i64::MIN + 1, i64::MIN] {
         let v = Value::Integer(n);
         assert_eq!(roundtrip(v.clone(), Version::Resp2), v, "integer {n}");
     }
@@ -213,6 +213,42 @@ fn attribute() {
     assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
 }
 
+// ── Empty aggregates ─────────────────────────────────────────────────────────
+
+#[test]
+fn map_empty() {
+    let v = Value::Map(vec![]);
+    assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
+}
+
+#[test]
+fn set_empty() {
+    let v = Value::Set(vec![]);
+    assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
+}
+
+#[test]
+fn push_empty() {
+    let v = Value::Push(vec![]);
+    assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
+}
+
+#[test]
+fn attribute_empty_pairs() {
+    let v = Value::Attribute {
+        attrs: vec![],
+        value: Box::new(Value::Integer(42)),
+    };
+    assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
+}
+
+#[test]
+fn verbatim_string_minimum_length() {
+    // Length 4 = encoding(3) + ':' with zero data bytes — the minimum valid frame
+    let v = Value::VerbatimString { encoding: *b"txt", data: bytes::Bytes::new() };
+    assert_eq!(roundtrip(v.clone(), Version::Resp3), v);
+}
+
 // ── Codec behaviour ──────────────────────────────────────────────────────────
 
 #[test]
@@ -283,6 +319,17 @@ fn max_frame_bytes_exact_boundary_succeeds() {
     let mut codec = RespCodec::resp2().with_max_frame_bytes(4);
     let mut buf = BytesMut::from(&b"+OK\r\n"[..]);
     assert!(codec.decode(&mut buf).is_err());
+}
+
+#[test]
+fn default_codec_is_resp2() {
+    use beyond_resp::RespCodec;
+    let mut codec = RespCodec::default();
+    assert_eq!(codec.version(), Version::Resp2);
+    // Default frame limit: Null encodes as $-1\r\n in RESP2
+    let mut buf = BytesMut::new();
+    codec.encode(Value::Null, &mut buf).unwrap();
+    assert_eq!(&buf[..], b"$-1\r\n");
 }
 
 #[test]
