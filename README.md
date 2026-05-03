@@ -1,6 +1,6 @@
 # beyond-resp
 
-Frame and parse RESP2/RESP3 over any async byte stream.
+Frame and parse RESP2/RESP3 over any async byte stream
 
 `RespCodec` implements tokio-util's `Encoder` and `Decoder` traits. Drop it onto a `Framed` transport and you have a working Redis wire codec.
 
