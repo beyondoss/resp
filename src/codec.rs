@@ -109,3 +109,35 @@ impl Encoder<&Value> for RespCodec {
         Ok(())
     }
 }
+
+#[cfg(feature = "monoio")]
+impl monoio_codec::Decoder for RespCodec {
+    type Item = Value;
+    type Error = RespError;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<monoio_codec::Decoded<Value>, RespError> {
+        if src.is_empty() {
+            return Ok(monoio_codec::Decoded::Insufficient);
+        }
+        if src.len() > self.max_frame_bytes {
+            return Err(RespError::too_large(self.max_frame_bytes));
+        }
+        match parse::frame_len(src) {
+            Ok(len) => {
+                if len > self.max_frame_bytes {
+                    return Err(RespError::too_large(self.max_frame_bytes));
+                }
+                let frozen = src.split_to(len).freeze();
+                let mut pos = 0;
+                Ok(monoio_codec::Decoded::Some(parse::build_value(
+                    &frozen, &mut pos, 0,
+                )?))
+            }
+            Err(RespError::Incomplete) => {
+                src.reserve(64);
+                Ok(monoio_codec::Decoded::Insufficient)
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
