@@ -215,7 +215,7 @@ fn encode_null_resp3(b: divan::Bencher) {
 
 #[divan::bench]
 fn encode_double(b: divan::Bencher) {
-    let v = Value::Double(3.14159265358979);
+    let v = Value::Double(std::f64::consts::PI);
     b.bench(|| {
         let mut dst = BytesMut::with_capacity(32);
         let mut codec = RespCodec::resp3();
