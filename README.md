@@ -11,6 +11,13 @@ Frame and parse RESP2/RESP3 over any async byte stream
 beyond-resp = "0.1"
 ```
 
+Enable monoio support:
+
+```toml
+[dependencies]
+beyond-resp = { version = "0.1", features = ["monoio"] }
+```
+
 ## Quick Start
 
 ```rust
@@ -49,6 +56,19 @@ if let Some(response) = framed.next().await {
     println!("{:?}", response?);
 }
 ```
+
+With a monoio transport:
+
+```rust
+use beyond_resp::{RespCodec, Value};
+use monoio::net::TcpStream;
+use monoio_codec::Decoder; // brings .framed() into scope
+
+let stream = TcpStream::connect("127.0.0.1:6379").await?;
+let mut framed = RespCodec::resp2().framed(stream);
+```
+
+`monoio_codec::Decoder` returns `Decoded<Value>` — `Decoded::Some(v)` when a frame is ready, `Decoded::Insufficient` when more bytes are needed.
 
 ## Protocol Version
 
