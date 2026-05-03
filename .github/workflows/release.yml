@@ -1,0 +1,56 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  check-version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - id: check
+        run: |
+          LOCAL=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "version=$LOCAL" >> "$GITHUB_OUTPUT"
+          PUBLISHED=$(cargo search beyond-resp --limit 1 2>/dev/null | head -1 | sed -n 's/.*= "\(.*\)".*/\1/p')
+          echo "local=$LOCAL published=$PUBLISHED"
+          if [ "$LOCAL" = "$PUBLISHED" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+  release:
+    name: Release
+    needs: check-version
+    if: needs.check-version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ needs.check-version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --title "v${{ needs.check-version.outputs.version }}" \
+            --generate-notes
+  publish:
+    name: Publish to crates.io
+    needs: [check-version, release]
+    if: needs.check-version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --no-verify --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
