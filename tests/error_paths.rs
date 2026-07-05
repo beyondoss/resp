@@ -190,6 +190,21 @@ fn error_leaves_buffer_unconsumed() {
 }
 
 #[test]
+fn semantic_error_leaves_buffer_unconsumed() {
+    for wire in [
+        &b",not-a-double\r\n"[..],
+        &b"(not-a-number\r\n"[..],
+        &b"=4\r\nabcd\r\n"[..],
+        &b"#x\r\n"[..],
+    ] {
+        let mut codec = RespCodec::resp2();
+        let mut buf = BytesMut::from(wire);
+        assert!(codec.decode(&mut buf).is_err(), "wire: {wire:?}");
+        assert_eq!(buf.as_ref(), wire, "semantic error must not consume input");
+    }
+}
+
+#[test]
 fn codec_usable_after_buffer_cleared() {
     let mut codec = RespCodec::resp2();
     let mut buf = BytesMut::from(&b"?\r\n"[..]);
