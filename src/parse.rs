@@ -27,15 +27,28 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
     *pos += 1;
 
     match prefix {
-        b'+' | b'-' | b':' | b',' | b'(' => {
+        b'+' | b'-' | b':' => {
             read_line(src, pos)?;
+        }
+        b',' => {
+            let line = read_line(src, pos)?;
+            parse_double(line)?;
+        }
+        b'(' => {
+            let line = read_line(src, pos)?;
+            validate_bignumber(line)?;
         }
         b'_' => {
             expect_crlf(src, pos)?;
         }
         b'#' => {
-            require(src, *pos, 3)?;
-            *pos += 3;
+            require(src, *pos, 1)?;
+            match src[*pos] {
+                b't' | b'f' => {}
+                byte => return Err(RespError::invalid_type(byte)),
+            }
+            *pos += 1;
+            expect_crlf(src, pos)?;
         }
         b'$' => {
             let len = read_length(src, pos)?;
@@ -57,12 +70,22 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
                 }
             }
         }
-        b'!' | b'=' => {
+        b'!' => {
             let len = read_length(src, pos)?;
             if len < 0 {
                 return Err(RespError::InvalidLength);
             }
             skip_bulk(src, pos, to_count(len)?)?;
+        }
+        b'=' => {
+            let len = read_length(src, pos)?;
+            if len < 4 {
+                return Err(RespError::InvalidVerbatim);
+            }
+            let (s, _e) = bulk_range(src, pos, to_count(len)?)?;
+            if src[s + 3] != b':' {
+                return Err(RespError::InvalidVerbatim);
+            }
         }
         b'%' => {
             let len = read_length(src, pos)?;
@@ -106,8 +129,8 @@ fn count_value(src: &[u8], pos: &mut usize, depth: u8) -> Result<(), RespError> 
 ///
 /// # Safety invariant
 /// Every index into `src` is safe without bounds-checking because `frame_len`
-/// (which runs `count_value`) has already confirmed that `src` contains a
-/// structurally complete frame. Do not call this function on a partial buffer.
+/// has already validated structure and semantics. Do not call this on a partial
+/// buffer or without a prior successful `frame_len` pass.
 pub(crate) fn build_value(src: &Bytes, pos: &mut usize, depth: u8) -> Result<Value, RespError> {
     if depth > MAX_DEPTH {
         return Err(RespError::DepthLimitExceeded);
@@ -602,6 +625,14 @@ mod tests {
         assert!(matches!(
             parse_one(b"*2\r\n$5\r\nhello\r\n"),
             Err(RespError::Incomplete)
+        ));
+    }
+
+    #[test]
+    fn boolean_invalid_byte() {
+        assert!(matches!(
+            parse_one(b"#x\r\n"),
+            Err(RespError::InvalidTypeByte { byte: b'x' })
         ));
     }
 
